@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#171717"><meta name="description" content="Agende seu próximo momento no Studio Lumière.">
+  <title>Agende | Studio Lumière</title><link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="client-body">
+  <header class="client-header"><a class="brand client-brand" href="cliente.html"><span class="brand-mark">S</span><span><strong>studio lumière</strong><small>BELEZA NO SEU TEMPO</small></span></a><a href="index.html" class="back-link">Área da equipe ↗</a></header>
+  <main class="booking-layout">
+    <section class="booking-intro"><p class="eyebrow">STUDIO LUMIÈRE · UNIDADE CENTRO</p><h1>Seu próximo momento<br><em>começa aqui.</em></h1><p>Escolha seu serviço, encontre o melhor horário e deixe o resto com a gente.</p><div class="intro-detail"><span>✳</span><div><b>Um cuidado pensado para você</b><small>Agendamento simples, rápido e sem complicação.</small></div></div></section>
+    <section class="booking-card">
+      <div class="booking-progress"><span class="step active">01 <small>Serviço</small></span><i></i><span class="step">02 <small>Profissional</small></span><i></i><span class="step">03 <small>Horário</small></span></div>
+      <div class="booking-step" data-step="1"><p class="eyebrow">ETAPA 01 DE 03</p><h2>O que vamos fazer hoje?</h2><p class="subheading">Selecione o serviço desejado.</p>
+        <label class="service-choice"><input type="radio" name="service" value="Corte feminino" checked><span><b>Corte feminino</b><small>Lavagem, corte e finalização · 45 min</small></span><strong>R$ 95</strong></label>
+        <label class="service-choice"><input type="radio" name="service" value="Escova"><span><b>Escova</b><small>Escova e finalização · 40 min</small></span><strong>R$ 75</strong></label>
+        <label class="service-choice"><input type="radio" name="service" value="Coloração"><span><b>Coloração</b><small>Aplicação e finalização · 120 min</small></span><strong>R$ 280</strong></label>
+        <label class="service-choice"><input type="radio" name="service" value="Hidratação"><span><b>Hidratação</b><small>Tratamento capilar · 50 min</small></span><strong>R$ 130</strong></label>
+        <button class="primary-button client-next" data-next="2">Continuar <span>→</span></button>
+      </div>
+      <div class="booking-step hidden" data-step="2"><p class="eyebrow">ETAPA 02 DE 03</p><h2>Com quem deseja ser atendido?</h2><p class="subheading">Escolha um profissional ou deixe a gente indicar.</p>
+        <label class="professional-choice"><input type="radio" name="professional" value="Sem preferência" checked><span class="avatar team-a">✳</span><span><b>Sem preferência</b><small>Primeiro horário disponível</small></span></label>
+        <label class="professional-choice"><input type="radio" name="professional" value="Camila Rocha"><span class="avatar team-a">CR</span><span><b>Camila Rocha</b><small>Especialista em cor e corte</small></span></label>
+        <label class="professional-choice"><input type="radio" name="professional" value="Júlia Mendes"><span class="avatar team-c">JM</span><span><b>Júlia Mendes</b><small>Cabeleireira</small></span></label>
+        <div class="button-row"><button class="secondary-button" data-back="1">Voltar</button><button class="primary-button" data-next="3">Continuar →</button></div>
+      </div>
+      <div class="booking-step hidden" data-step="3"><p class="eyebrow">ETAPA 03 DE 03</p><h2>Escolha seu horário</h2><p class="subheading">Horários ilustrativos para demonstração.</p>
+        <label class="date-label">Data do atendimento<input type="date" id="clientDate" value="2026-11-18"></label>
+        <div class="time-grid"><label><input type="radio" name="time" value="09:00" checked><span>09:00</span></label><label><input type="radio" name="time" value="10:30"><span>10:30</span></label><label><input type="radio" name="time" value="13:00"><span>13:00</span></label><label><input type="radio" name="time" value="14:30"><span>14:30</span></label><label><input type="radio" name="time" value="16:00"><span>16:00</span></label><label><input type="radio" name="time" value="17:30"><span>17:30</span></label></div>
+        <label class="date-label">Seu nome<input id="clientName" placeholder="Nome completo" required></label>
+        <label class="date-label">WhatsApp<input id="clientPhone" placeholder="(00) 00000-0000" required></label>
+        <div class="button-row"><button class="secondary-button" data-back="2">Voltar</button><button class="primary-button" id="confirmBooking">Confirmar agendamento</button></div>
+      </div>
+      <div class="booking-success hidden" id="bookingSuccess"><div class="success-mark">✓</div><p class="eyebrow">SOLICITAÇÃO REGISTRADA</p><h2>Seu horário está reservado!</h2><p>Esta é uma confirmação demonstrativa. Na versão conectada, você receberá a validação por WhatsApp ou e-mail.</p><div class="success-summary" id="successSummary"></div><button class="secondary-button" onclick="location.reload()">Fazer novo agendamento</button></div>
+      <p class="booking-terms">Ao continuar, você concorda com nossa política de privacidade e agendamento.</p>
+    </section>
+  </main>
+  <script src="/static/client.js"></script>
+</body>
+</html>
