@@ -200,14 +200,28 @@
         <p class="prototype-note">Protótipo demonstrativo: os cartões e indicadores usam dados fictícios para validar a
           experiência.</p>
       </section>
-
-      <section class="page placeholder-page" id="agenda">
+      <section class="page" id="agenda">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">ORGANIZAÇÃO</p>
+            <p class="eyebrow">ORGANIZAÇÃO · JANELA DE 5 DIAS</p>
             <h1>Agenda</h1>
-            <p class="subheading">Visualização diária da disponibilidade da equipe.</p>
-          </div><button class="primary-button" id="agendaNew">＋ Novo agendamento</button>
+            <p class="subheading">Visualização consecutiva de 5 dias. Arraste um cartão para outro dia para remarcar.</p>
+          </div>
+          <button class="primary-button" id="agendaNew">＋ Novo agendamento</button>
+        </div>
+        <div class="toolbar">
+          <div class="date-control" id="agendaDateControl">
+            <button type="button" data-agenda-step="-5" title="Voltar 5 dias" style="background:none;border:none;cursor:pointer;padding:0 4px;font-size:inherit;color:inherit;">«</button>
+            <button type="button" data-agenda-step="-1" title="Dia anterior" style="background:none;border:none;cursor:pointer;padding:0 6px;font-size:inherit;color:inherit;">‹</button>
+            <b id="agendaRangeLabel">Carregando...</b>
+            <button type="button" data-agenda-step="1" title="Próximo dia" style="background:none;border:none;cursor:pointer;padding:0 6px;font-size:inherit;color:inherit;">›</button>
+            <button type="button" data-agenda-step="5" title="Avançar 5 dias" style="background:none;border:none;cursor:pointer;padding:0 4px;font-size:inherit;color:inherit;">»</button>
+          </div>
+          <button type="button" class="filter-button" id="agendaTodayBtn">Hoje</button>
+          <span class="board-total" id="agendaTotalLabel">0 agendamentos nos 5 dias</span>
+        </div>
+        <div class="kanban-board" id="agendaBoard">
+          <!-- Colunas dos 5 dias -->
         </div>
       </section>
       <section class="page placeholder-page" id="clientes">
@@ -283,9 +297,12 @@
         <label>Nome do cliente<input required id="modal-client-name" placeholder="Ex.: Camila Oliveira"></label>
         <div class="form-two">
           <label>Serviço<select id="modal-service-select" required></select></label>
-          <label>Horário<input type="time" id="modal-time-input" value="14:00" required></label>
+          <label>Data<input type="date" id="modal-date-input" required></label>
         </div>
-        <label>Profissional<select id="modal-professional-select" required></select></label>
+        <div class="form-two">
+          <label>Horário<input type="time" id="modal-time-input" value="14:00" required></label>
+          <label>Profissional<select id="modal-professional-select" required></select></label>
+        </div>
         <button class="primary-button modal-submit" type="submit">Salvar agendamento</button>
       </form>
       <p class="prototype-note">Demonstração visual — os dados não são salvos em banco de dados.</p>

@@ -18,6 +18,7 @@ function showPage(id){
   document.getElementById('sidebar').classList.remove('open');
   
   if(id==='kanban') loadKanban();
+  if(id==='agenda') loadAgenda5Days();
   if(id==='equipe') loadProfessionalsPage();
   if(id==='servicos') loadServicesPage();
   if(id==='clientes') loadClientsPage();
@@ -31,6 +32,29 @@ document.getElementById('mobileMenu').addEventListener('click',()=>document.getE
 
 function money(value){return Number(value||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});}
 function setStat(label, value){const card=[...document.querySelectorAll('.stat-card')].find(c=>c.querySelector('.stat-top')?.innerText.includes(label));if(card)card.querySelector('strong').textContent=value;}
+
+function syncTodayLabels() {
+  const now = new Date();
+  const topLabel = now.toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long'
+  }).toUpperCase();
+
+  const shortDay = now.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'short'
+  }).replace('.', '');
+
+  document.querySelectorAll('.today-label').forEach(el => {
+    el.textContent = topLabel;
+  });
+
+  const kanbanDateEl = document.querySelector('#kanban .date-control b');
+  if (kanbanDateEl) {
+    kanbanDateEl.textContent = `Hoje, ${shortDay}.`;
+  }
+}
 
 async function loadDashboard(){
     const data=await api('/api/dashboard');
@@ -81,6 +105,7 @@ async function loadDashboard(){
 // Inicialização segura ao carregar a página
 (async()=>{
     try {
+        syncTodayLabels();
         const user = await api('/api/me');
         if(user && user.name) {
             document.getElementById('user-name').textContent = user.name;
@@ -96,8 +121,44 @@ async function loadDashboard(){
     }
 })();
 
+const columns = [
+  { status: 'arrived', title: 'Chegaram / Confirmados', dot: 'dot-amber' },
+  { status: 'waiting', title: 'Em espera', dot: 'dot-blue' },
+  { status: 'in_progress', title: 'Em atendimento', dot: 'dot-green' },
+  { status: 'completed', title: 'Finalizados', dot: 'dot-gray' },
+];
+
+let kanbanSelectedDate = new Date();
+kanbanSelectedDate.setHours(0, 0, 0, 0);
+
+function formatDateParam(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function updateKanbanDateLabel() {
+  const el = document.querySelector('#kanban .date-control b');
+  if (!el) return;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const shortDay = kanbanSelectedDate.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'short'
+  }).replace('.', '');
+
+  el.textContent = kanbanSelectedDate.getTime() === today.getTime()
+    ? `Hoje, ${shortDay}.`
+    : `${shortDay}.`;
+}
+
 async function loadKanban(){
-  const appointments=await api('/api/appointments');
+  updateKanbanDateLabel();
+  const dateStr = formatDateParam(kanbanSelectedDate);
+  const appointments=await api(`/api/appointments?date=${dateStr}`);
   const board=document.querySelector('.kanban-board');
   if(!board)return;
   board.innerHTML=columns.map(col=>{
@@ -117,6 +178,168 @@ async function loadKanban(){
     });
   });
 }
+
+const dateControl = document.querySelector('#kanban .date-control');
+if (dateControl) {
+  const parts = dateControl.childNodes;
+  parts.forEach(node => {
+    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+      const span = document.createElement('button');
+      span.type = 'button';
+      span.textContent = node.textContent.trim();
+      span.style.cssText = 'background:none;border:none;cursor:pointer;padding:0 6px;font-size:inherit;color:inherit;';
+      span.dataset.step = node.textContent.includes('‹') ? '-1' : '1';
+      node.replaceWith(span);
+    }
+  });
+
+  dateControl.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-step]');
+    if (!btn) return;
+    const step = Number(btn.dataset.step);
+    kanbanSelectedDate.setDate(kanbanSelectedDate.getDate() + step);
+    loadKanban();
+  });
+}
+
+// Agenda em janela deslizante de 5 dias (Dia 1..5 -> Dia 2..6 ao avançar)
+let agendaStartDate = new Date();
+agendaStartDate.setHours(0, 0, 0, 0);
+
+const dotPalette = ['dot-amber', 'dot-blue', 'dot-green', 'dot-gray', 'dot-amber'];
+
+function formatAgendaColumnTitle(dateObj, index) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const dayMonth = dateObj.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'short'
+  }).replace('.', '');
+
+  const weekday = dateObj.toLocaleDateString('pt-BR', {
+    weekday: 'short'
+  }).replace('.', '');
+
+  const prefix = dateObj.getTime() === today.getTime() ? 'Hoje · ' : `Dia ${index + 1} · `;
+  return `${prefix}${dayMonth} (${weekday})`;
+}
+
+async function loadAgenda5Days() {
+  const board = document.getElementById('agendaBoard');
+  const rangeLabel = document.getElementById('agendaRangeLabel');
+  const totalLabel = document.getElementById('agendaTotalLabel');
+  if (!board) return;
+
+  const days = [];
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(agendaStartDate);
+    d.setDate(agendaStartDate.getDate() + i);
+    days.push(d);
+  }
+
+  if (rangeLabel) {
+    const firstStr = days[0].toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '');
+    const lastStr = days[4].toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '');
+    rangeLabel.textContent = `${firstStr} — ${lastStr}`;
+  }
+
+  const results = await Promise.all(
+    days.map(d => api(`/api/appointments?date=${formatDateParam(d)}`))
+  );
+
+  const totalCount = results.reduce((acc, list) => acc + (Array.isArray(list) ? list.length : 0), 0);
+  if (totalLabel) {
+    totalLabel.textContent = `${totalCount} ${totalCount === 1 ? 'agendamento' : 'agendamentos'} nos 5 dias`;
+  }
+
+  board.innerHTML = days.map((d, idx) => {
+    const dateStr = formatDateParam(d);
+    const items = Array.isArray(results[idx]) ? results[idx] : [];
+    const colTitle = formatAgendaColumnTitle(d, idx);
+    const dotClass = dotPalette[idx % dotPalette.length];
+
+    return `<div class="kanban-column" data-date="${dateStr}"><div class="column-heading"><span><i class="dot ${dotClass}"></i>${escapeHtml(colTitle)}</span><b>${items.length}</b></div><div class="kanban-cards">${items.map(a => `<article class="booking-card" draggable="true" data-id="${a.id}" data-time="${escapeHtml(a.start_at.slice(11, 16))}"><div class="card-time">${a.start_at.slice(11, 16)} <span>· ${statusLabel(a.status)}</span></div><div class="card-client"><div class="avatar client-a">${initials(a.client)}</div><div><b>${escapeHtml(a.client)}</b><small>${escapeHtml(a.service)}</small></div></div><div class="card-meta"><span>${escapeHtml(a.professional)}</span><b>${money(a.price)}</b></div><div class="card-footer"><span class="tag ${a.status==='completed'?'tag-green':''}">${statusLabel(a.status)}</span><button class="card-menu" type="button" aria-label="Opções">•••</button></div></article>`).join('')}</div></div>`;
+  }).join('');
+
+  board.querySelectorAll('.booking-card').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', card.dataset.id);
+      e.dataTransfer.setData('text/time', card.dataset.time || '14:00');
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+  });
+
+  board.querySelectorAll('.kanban-column').forEach(col => {
+    col.addEventListener('dragover', e => e.preventDefault());
+    col.addEventListener('drop', async e => {
+      e.preventDefault();
+      const id = e.dataTransfer.getData('text/plain');
+      const time = e.dataTransfer.getData('text/time') || '14:00';
+      const targetDate = col.dataset.date;
+      if (!id || !targetDate) return;
+
+      try {
+        await api(`/api/appointments/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ start_at: `${targetDate}T${time}:00` })
+        });
+        await loadAgenda5Days();
+        await loadDashboard();
+        if (document.getElementById('kanban')?.classList.contains('active-page')) {
+          await loadKanban();
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+document.getElementById('agendaDateControl')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-agenda-step]');
+  if (!btn) return;
+  const step = Number(btn.dataset.agendaStep);
+  agendaStartDate.setDate(agendaStartDate.getDate() + step);
+  loadAgenda5Days();
+});
+
+document.getElementById('agendaTodayBtn')?.addEventListener('click', () => {
+  agendaStartDate = new Date();
+  agendaStartDate.setHours(0, 0, 0, 0);
+  loadAgenda5Days();
+});
+
+document.addEventListener('click', async (e) => {
+  const menuBtn = e.target.closest('.card-menu');
+  if (!menuBtn) return;
+
+  const card = menuBtn.closest('.booking-card');
+  const id = card?.dataset.id;
+  if (!id) return;
+
+  const currentTime = card.querySelector('.card-time')?.textContent.slice(0, 5) || '14:00';
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const newDate = prompt('Nova data (AAAA-MM-DD):', todayStr);
+  if (!newDate) return;
+
+  const newTime = prompt('Novo horário (HH:MM):', currentTime);
+  if (!newTime) return;
+
+  try {
+    await api(`/api/appointments/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ start_at: `${newDate}T${newTime}:00` })
+    });
+    await loadKanban();
+    await loadAgenda5Days();
+    await loadDashboard();
+    alert('Agendamento remarcado com sucesso!');
+  } catch (err) {
+    alert(err.message);
+  }
+});
 
 function initials(name){return String(name||'').split(' ').slice(0,2).map(x=>x[0]).join('').toUpperCase();}
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -149,7 +372,8 @@ document.getElementById('bookingForm').addEventListener('submit',async e=>{
       return;
     }
 
-    const date = new Date().toISOString().slice(0,10);
+    const dateInput = form.querySelector('#modal-date-input');
+    const date = (dateInput && dateInput.value) ? dateInput.value : new Date().toISOString().slice(0,10);
     const time = form.querySelector('input[type="time"]').value;
     const clientNameInput = form.querySelector('input[required]') || form.querySelector('input[type="text"]');
     const clientName = clientNameInput ? clientNameInput.value : 'Cliente';
@@ -166,12 +390,18 @@ document.getElementById('bookingForm').addEventListener('submit',async e=>{
     form.reset();
     await loadDashboard();
     await loadKanban();
+    await loadAgenda5Days();
     alert('Agendamento salvo no banco de dados!');
   }catch(err){alert(err.message);}
 });
 
 async function populateBookingModal() {
   try {
+    const dateInput = document.getElementById('modal-date-input');
+    if (dateInput && !dateInput.value) {
+      dateInput.value = new Date().toISOString().slice(0, 10);
+    }
+
     const catalog = await api('/api/admin/catalog');
     const serviceSelect = document.getElementById('modal-service-select');
     const professionalSelect = document.getElementById('modal-professional-select');
