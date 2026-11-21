@@ -22,6 +22,7 @@ function showPage(id){
   if(id==='equipe') loadProfessionalsPage();
   if(id==='servicos') loadServicesPage();
   if(id==='clientes') loadClientsPage();
+  if(id==='unidades') loadUnitsPage();
 
   window.scrollTo({top:0,behavior:'smooth'});
 }
@@ -100,6 +101,96 @@ async function loadDashboard(){
     if(list){
       list.innerHTML=data.appointments.slice(0,6).map(a=>`<div class="appointment-row"><time>${a.start_at.slice(11,16)}</time><div class="avatar client-a">${initials(a.client)}</div><div class="appointment-info"><b>${escapeHtml(a.client)}</b><small>${escapeHtml(a.service)} · ${escapeHtml(a.professional)}</small></div><span class="status ${statusClass(a.status)}">${statusLabel(a.status)}</span></div>`).join('') || '<p class="subheading">Nenhum agendamento para hoje.</p>';
     }
+}
+
+// Seletor rápido de unidades da empresa ativa na sidebar
+const workspaceBox = document.querySelector('.workspace');
+const workspaceSwitchBtn = document.querySelector('.workspace-switch');
+let unitDropdown = null;
+
+if (workspaceBox && workspaceSwitchBtn) {
+  workspaceBox.style.position = 'relative';
+  unitDropdown = document.createElement('div');
+  unitDropdown.id = 'workspaceUnitMenu';
+  unitDropdown.style.cssText = 'display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);background:#fff;border:1px solid #e5e5e5;border-radius:10px;box-shadow:0 10px 25px rgba(0,0,0,0.12);padding:6px;z-index:50;';
+  workspaceBox.appendChild(unitDropdown);
+
+  async function renderWorkspaceUnitMenu() {
+    if (!unitDropdown) return;
+    unitDropdown.innerHTML = '<div style="padding:8px 10px;font-size:12px;color:#666;">Carregando unidades...</div>';
+    try {
+      const units = await api('/api/units');
+      if (!units || units.length === 0) {
+        unitDropdown.innerHTML = '<div style="padding:8px 10px;font-size:12px;color:#666;">Nenhuma unidade cadastrada.</div>';
+        return;
+      }
+
+      unitDropdown.innerHTML = `
+        <div style="padding:4px 10px 6px;font-size:10px;font-weight:700;letter-spacing:0.06em;color:#888;text-transform:uppercase;">Unidades da empresa</div>
+        ${units.map(u => `
+          <button type="button" class="ws-unit-option" data-unit-id="${u.id}" style="width:100%;display:flex;justify-content:space-between;align-items:center;text-align:left;background:${u.is_current ? '#f5f5f5' : 'transparent'};border:none;border-radius:7px;padding:8px 10px;cursor:pointer;font-size:13px;color:#171717;margin-bottom:2px;">
+            <span>
+              <b>${escapeHtml(u.name)}</b>
+              ${u.city ? `<br><small style="color:#777;font-size:11px;">${escapeHtml(u.city)}</small>` : ''}
+            </span>
+            <span style="font-size:11px;font-weight:600;color:${u.is_current ? '#1b5e20' : '#666'};">${u.is_current ? 'Ativa' : 'Trocar'}</span>
+          </button>
+        `).join('')}
+        <div style="border-top:1px solid #eee;margin-top:4px;padding-top:4px;">
+          <button type="button" id="wsManageUnitsBtn" style="width:100%;text-align:left;background:transparent;border:none;border-radius:7px;padding:7px 10px;cursor:pointer;font-size:12px;color:#333;font-weight:500;">⚙ Gerenciar unidades</button>
+        </div>
+      `;
+
+      unitDropdown.querySelectorAll('.ws-unit-option').forEach(opt => {
+        opt.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          const unitId = opt.dataset.unitId;
+          try {
+            await api(`/api/units/${unitId}/select`, { method: 'PATCH' });
+            unitDropdown.style.display = 'none';
+            await loadDashboard();
+            if (document.getElementById('unidades')?.classList.contains('active-page')) {
+              await loadUnitsPage();
+            }
+            if (document.getElementById('kanban')?.classList.contains('active-page')) {
+              await loadKanban();
+            }
+            if (document.getElementById('agenda')?.classList.contains('active-page')) {
+              await loadAgenda5Days();
+            }
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      });
+
+      document.getElementById('wsManageUnitsBtn')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        unitDropdown.style.display = 'none';
+        showPage('unidades');
+      });
+    } catch (err) {
+      unitDropdown.innerHTML = `<div style="padding:8px 10px;font-size:12px;color:#b91c1c;">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  workspaceSwitchBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const isOpen = unitDropdown.style.display === 'block';
+    if (isOpen) {
+      unitDropdown.style.display = 'none';
+    } else {
+      unitDropdown.style.display = 'block';
+      await renderWorkspaceUnitMenu();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (unitDropdown && !workspaceBox.contains(e.target)) {
+      unitDropdown.style.display = 'none';
+    }
+  });
 }
 
 // Inicialização segura ao carregar a página
@@ -453,6 +544,95 @@ async function loadServicesPage() {
     container.innerHTML = '<p>Erro ao carregar serviços.</p>';
   }
 }
+
+// Carregar Unidades na aba Gestão
+async function loadUnitsPage() {
+  const container = document.getElementById('unit-list-container');
+  if(!container) return;
+  try {
+    const units = await api('/api/units');
+    if(!units || units.length === 0) {
+      container.innerHTML = '<p>Nenhuma unidade cadastrada. Clique em "Nova unidade".</p>';
+      return;
+    }
+    container.innerHTML = units.map(u => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #eee;gap:12px;">
+        <div>
+          <b>${escapeHtml(u.name)}</b>
+          ${u.is_current ? '<span class="tag" style="margin-left:8px;background:#e8f5e9;color:#1b5e20;padding:3px 8px;border-radius:4px;font-size:11px;">Ativa</span>' : ''}
+          <br>
+          <small style="color:#666;">${u.city ? '📍 ' + escapeHtml(u.city) + ' · ' : ''}Slug: ${escapeHtml(u.slug)}</small>
+        </div>
+        <div>
+          ${u.is_current
+            ? '<span style="color:#666;font-size:13px;">Unidade selecionada</span>'
+            : `<button type="button" class="subtle-button select-unit-btn" data-unit-id="${u.id}">Usar esta unidade</button>`
+          }
+        </div>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.select-unit-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const unitId = btn.dataset.unitId;
+        if(!unitId) return;
+        try {
+          await api(`/api/units/${unitId}/select`, { method: 'PATCH' });
+          await loadUnitsPage();
+          await loadDashboard();
+        } catch(err) {
+          alert(err.message);
+        }
+      });
+    });
+  } catch(e) {
+    container.innerHTML = '<p>Erro ao carregar unidades.</p>';
+  }
+}
+
+// Controle do Modal de Unidades (Injeção Dinâmica)
+const unitModal = document.createElement('div');
+unitModal.className = 'modal-backdrop';
+unitModal.id = 'unitModal';
+unitModal.innerHTML = `
+  <div class="modal">
+    <button class="modal-close" id="closeUnitModal">×</button>
+    <p class="eyebrow">REDE</p>
+    <h2>Nova Unidade</h2>
+    <p class="subheading">Cadastre uma nova filial ou espaço de atendimento.</p>
+    <form id="unitForm">
+      <label>Nome da unidade<input required id="unit-name" placeholder="Ex: Unidade Bairro Fundinho"></label>
+      <label style="margin-top: 10px; display: block;">Cidade<input id="unit-city" placeholder="Ex: Uberlândia" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ddd; border-radius: 6px;"></label>
+      <label style="margin-top: 10px; display: block;">Identificador / Slug (Opcional)<input id="unit-slug" placeholder="Ex: studio-lumiere-fundinho" style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ddd; border-radius: 6px;"></label>
+      <button class="primary-button modal-submit" type="submit" style="margin-top: 15px;">Salvar unidade</button>
+    </form>
+  </div>
+`;
+document.body.appendChild(unitModal);
+
+document.getElementById('openUnitModal')?.addEventListener('click', () => unitModal.classList.add('open'));
+document.getElementById('closeUnitModal')?.addEventListener('click', () => unitModal.classList.remove('open'));
+unitModal.addEventListener('click', e => { if(e.target === unitModal) unitModal.classList.remove('open'); });
+
+document.getElementById('unitForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('unit-name').value;
+  const city = document.getElementById('unit-city').value;
+  const slug = document.getElementById('unit-slug').value;
+  try {
+    await api('/api/units', {
+      method: 'POST',
+      body: JSON.stringify({ name, city, slug })
+    });
+    unitModal.classList.remove('open');
+    e.target.reset();
+    await loadUnitsPage();
+    await loadDashboard();
+    alert('Unidade cadastrada com sucesso!');
+  } catch(err) {
+    alert(err.message);
+  }
+});
 
 // Controle do Modal de Profissionais
 const proModal = document.createElement('div');

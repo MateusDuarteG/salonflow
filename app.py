@@ -1,11 +1,12 @@
+import json
 import os
-from datetime import datetime, timedelta, timezone
+import re
+from datetime import datetime, timedelta
 from functools import wraps
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, session, redirect, url_for, render_template
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import and_, or_
 from werkzeug.security import generate_password_hash, check_password_hash
 
 load_dotenv()
@@ -22,6 +23,11 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
 db = SQLAlchemy(app)
+
+
+def slugify(text):
+    slug = re.sub(r"[^a-z0-9]+", "-", (text or "").strip().lower()).strip("-")
+    return slug or "unidade"
 
 
 class Company(db.Model):
@@ -97,6 +103,19 @@ class Appointment(db.Model):
     service = db.relationship("Service")
 
 
+class CompanySetting(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey("company.id"), unique=True, nullable=False, index=True)
+    business_phone = db.Column(db.String(40), default="")
+    open_hour = db.Column(db.String(10), default="08:00")
+    close_hour = db.Column(db.String(10), default="20:00")
+    slot_minutes = db.Column(db.Integer, default=30)
+    share_catalog_across_units = db.Column(db.Boolean, default=False, nullable=False)
+    allow_overbooking = db.Column(db.Boolean, default=False, nullable=False)
+    plan_name = db.Column(db.String(60), default="Assinatura Base")
+    included_units = db.Column(db.Integer, default=1)
+
+
 def current_user():
     user_id = session.get("user_id")
     if not user_id:
@@ -120,14 +139,23 @@ def scoped_query(model):
     return model.query.filter_by(company_id=user.company_id)
 
 
+def get_or_create_settings(company_id):
+    settings = CompanySetting.query.filter_by(company_id=company_id).first()
+    if not settings:
+        settings = CompanySetting(company_id=company_id)
+        db.session.add(settings)
+        db.session.commit()
+    return settings
+
+
 def parse_local_datetime(value):
-    # O MVP recebe data/hora local da unidade. Timezone será configurável por unidade.
     return datetime.fromisoformat(value)
 
 
 def appointment_dict(a):
     return {
         "id": a.id,
+        "unit_id": a.unit_id,
         "client": a.client.name,
         "phone": a.client.phone,
         "service": a.service.name,
@@ -194,6 +222,7 @@ def api_logout():
     session.clear()
     return jsonify({"ok": True})
 
+
 @app.get("/register")
 def register_page():
     if current_user():
@@ -222,12 +251,10 @@ def api_register():
         return jsonify({"error": "Este e-mail já está cadastrado no sistema."}), 400
 
     try:
-        # 1. Cria a nova Empresa
         company = Company(name=company_name, slug=company_slug, active=True)
         db.session.add(company)
         db.session.flush()
 
-        # 2. Cria automaticamente a primeira Unidade (Matriz)
         unit = Unit(
             company_id=company.id,
             name=unit_name,
@@ -237,10 +264,9 @@ def api_register():
         db.session.add(unit)
         db.session.flush()
 
-        # 3. Cria o usuário proprietário/gerente (Owner) já amarrado na unit_id!
         user = User(
             company_id=company.id,
-            unit_id=unit.id, # <--- BLINDAGEM: Garante que o usuário pertence à matriz
+            unit_id=unit.id,
             name=user_name,
             email=email,
             password_hash=generate_password_hash(password),
@@ -248,7 +274,7 @@ def api_register():
             active=True
         )
         db.session.add(user)
-
+        db.session.add(CompanySetting(company_id=company.id))
         db.session.commit()
 
         session.clear()
@@ -260,11 +286,12 @@ def api_register():
         db.session.rollback()
         return jsonify({"error": f"Erro interno ao registrar: {str(e)}"}), 500
 
+
 @app.get("/api/me")
 @login_required
 def api_me():
     user = current_user()
-    return jsonify({"id": user.id, "name": user.name, "email": user.email, "role": user.role})
+    return jsonify({"id": user.id, "name": user.name, "email": user.email, "role": user.role, "unit_id": user.unit_id})
 
 
 @app.get("/api/dashboard")
@@ -275,40 +302,51 @@ def api_dashboard():
     start = datetime.combine(today, datetime.min.time())
     end = start + timedelta(days=1)
     q = scoped_query(Appointment).filter(Appointment.start_at >= start, Appointment.start_at < end)
+    if user.unit_id:
+        q = q.filter_by(unit_id=user.unit_id)
     appointments = q.order_by(Appointment.start_at.asc()).all()
     active_count = sum(1 for a in appointments if a.status == "in_progress")
     pending_count = sum(1 for a in appointments if a.status in ("pending", "requested"))
     revenue = sum(a.service.price_cents for a in appointments if a.status == "completed") / 100
+    company = db.session.get(Company, user.company_id)
+    unit = db.session.get(Unit, user.unit_id) if user.unit_id else None
     return jsonify({
         "appointments_today": len([a for a in appointments if a.status != "cancelled"]),
         "in_progress": active_count,
         "pending": pending_count,
         "revenue_completed": revenue,
         "appointments": [appointment_dict(a) for a in appointments],
-        "company": Company.query.get(user.company_id).name,
-        "unit": Unit.query.get(user.unit_id).name if user.unit_id else "Todas as unidades",
+        "company": company.name if company else "",
+        "unit": unit.name if unit else "Todas as unidades",
+        "unit_id": user.unit_id,
     })
+
 
 @app.get("/api/professionals")
 @login_required
 def api_professionals():
+    user = current_user()
+    settings = get_or_create_settings(user.company_id)
     q = scoped_query(Professional).filter_by(active=True)
-    unit_id = request.args.get("unit_id", type=int)
-    if unit_id:
+    unit_id = request.args.get("unit_id", type=int) or user.unit_id
+    if unit_id and not settings.share_catalog_across_units:
         q = q.filter_by(unit_id=unit_id)
     pros = q.all()
     return jsonify([{
         "id": p.id,
+        "unit_id": p.unit_id,
         "name": p.name,
         "specialty": p.specialty,
         "active": p.active
     } for p in pros])
 
+
 @app.get("/api/appointments")
 @login_required
 def api_appointments():
+    user = current_user()
     q = scoped_query(Appointment)
-    unit_id = request.args.get("unit_id", type=int)
+    unit_id = request.args.get("unit_id", type=int) or user.unit_id
     if unit_id:
         q = q.filter_by(unit_id=unit_id)
     date_value = request.args.get("date")
@@ -323,38 +361,38 @@ def api_appointments():
 @login_required
 def api_create_appointment():
     user = current_user()
+    settings = get_or_create_settings(user.company_id)
     data = request.get_json(silent=True) or {}
     required = ["client_name", "phone", "service_id", "professional_id", "start_at"]
     if any(not data.get(k) for k in required):
         return jsonify({"error": "Preencha cliente, telefone, serviço, profissional e horário."}), 400
-    
+
     service = scoped_query(Service).filter_by(id=data["service_id"], active=True).first()
     professional = scoped_query(Professional).filter_by(id=data["professional_id"], active=True).first()
     if not service or not professional:
         return jsonify({"error": "Serviço ou profissional não encontrado nesta empresa."}), 404
-        
-    # Pega a unidade correta com segurança
+
     unit_id = data.get("unit_id") or user.unit_id or service.unit_id
-    
+
     start_at = parse_local_datetime(data["start_at"])
     end_at = start_at + timedelta(minutes=service.duration_minutes)
-    if has_conflict(professional.id, start_at, end_at):
+    if not settings.allow_overbooking and has_conflict(professional.id, start_at, end_at):
         return jsonify({"error": "Este profissional já possui um atendimento nesse intervalo."}), 409
-        
+
     client = Client.query.filter_by(company_id=user.company_id, phone=data["phone"]).first()
     if not client:
         client = Client(company_id=user.company_id, name=data["client_name"], phone=data["phone"])
         db.session.add(client)
         db.session.flush()
-        
+
     appointment = Appointment(
-        company_id=user.company_id, 
-        unit_id=unit_id, 
+        company_id=user.company_id,
+        unit_id=unit_id,
         client_id=client.id,
-        professional_id=professional.id, 
+        professional_id=professional.id,
         service_id=service.id,
-        start_at=start_at, 
-        end_at=end_at, 
+        start_at=start_at,
+        end_at=end_at,
         status="confirmed",
         notes=data.get("notes", "")
     )
@@ -362,9 +400,12 @@ def api_create_appointment():
     db.session.commit()
     return jsonify(appointment_dict(appointment)), 201
 
+
 @app.patch("/api/appointments/<int:appointment_id>")
 @login_required
 def api_update_appointment(appointment_id):
+    user = current_user()
+    settings = get_or_create_settings(user.company_id)
     appointment = scoped_query(Appointment).filter_by(id=appointment_id).first()
     if not appointment:
         return jsonify({"error": "Agendamento não encontrado."}), 404
@@ -378,21 +419,30 @@ def api_update_appointment(appointment_id):
     if data.get("start_at"):
         start_at = parse_local_datetime(data["start_at"])
         end_at = start_at + timedelta(minutes=appointment.service.duration_minutes)
-        if has_conflict(appointment.professional_id, start_at, end_at, ignore_id=appointment.id):
+        if not settings.allow_overbooking and has_conflict(appointment.professional_id, start_at, end_at, ignore_id=appointment.id):
             return jsonify({"error": "O novo horário conflita com outro atendimento."}), 409
         appointment.start_at, appointment.end_at = start_at, end_at
     db.session.commit()
     return jsonify(appointment_dict(appointment))
 
+
 @app.get("/api/services")
 @login_required
 def api_get_services():
+    user = current_user()
+    settings = get_or_create_settings(user.company_id)
+    q = scoped_query(Service).filter_by(active=True)
+    unit_id = request.args.get("unit_id", type=int) or user.unit_id
+    if unit_id and not settings.share_catalog_across_units:
+        q = q.filter_by(unit_id=unit_id)
     return jsonify([{
         "id": s.id,
+        "unit_id": s.unit_id,
         "name": s.name,
         "duration_minutes": s.duration_minutes,
         "price": s.price_cents / 100
-    } for s in scoped_query(Service).filter_by(active=True).all()])
+    } for s in q.all()])
+
 
 @app.post("/api/services")
 @login_required
@@ -404,10 +454,18 @@ def api_create_service():
     price = int(float(data.get("price", 0)) * 100)
     if not name:
         return jsonify({"error": "Nome do serviço é obrigatório."}), 400
-    service = Service(company_id=user.company_id, unit_id=user.unit_id, name=name, duration_minutes=duration, price_cents=price, active=True)
+    service = Service(
+        company_id=user.company_id,
+        unit_id=user.unit_id,
+        name=name,
+        duration_minutes=duration,
+        price_cents=price,
+        active=True
+    )
     db.session.add(service)
     db.session.commit()
     return jsonify({"id": service.id, "name": service.name}), 201
+
 
 @app.get("/api/clients")
 @login_required
@@ -419,6 +477,7 @@ def api_get_clients():
         "email": c.email
     } for c in scoped_query(Client).order_by(Client.name.asc()).all()])
 
+
 @app.post("/api/clients")
 @login_required
 def api_create_client():
@@ -427,30 +486,37 @@ def api_create_client():
     name = (data.get("name") or "").strip()
     phone = (data.get("phone") or "").strip()
     email = (data.get("email") or "").strip().lower()
-    
+
     if not name or not phone:
         return jsonify({"error": "Nome e telefone são obrigatórios para contato."}), 400
-        
-    # Verifica se o cliente já existe para esta empresa
+
     existing = Client.query.filter_by(company_id=user.company_id, phone=phone).first()
     if existing:
         return jsonify({"error": "Já existe um cliente cadastrado com este telefone."}), 400
-        
+
     client = Client(company_id=user.company_id, name=name, phone=phone, email=email)
     db.session.add(client)
     db.session.commit()
     return jsonify({"id": client.id, "name": client.name, "phone": client.phone}), 201
 
+
 @app.get("/api/admin/catalog")
 @login_required
 def api_admin_catalog():
     user = current_user()
-    services = Service.query.filter_by(company_id=user.company_id, active=True).all()
-    professionals = Professional.query.filter_by(company_id=user.company_id, active=True).all()
+    settings = get_or_create_settings(user.company_id)
+    s_q = Service.query.filter_by(company_id=user.company_id, active=True)
+    p_q = Professional.query.filter_by(company_id=user.company_id, active=True)
+    if user.unit_id and not settings.share_catalog_across_units:
+        s_q = s_q.filter_by(unit_id=user.unit_id)
+        p_q = p_q.filter_by(unit_id=user.unit_id)
+    services = s_q.all()
+    professionals = p_q.all()
     return jsonify({
         "services": [{"id": s.id, "name": s.name, "duration_minutes": s.duration_minutes, "price": s.price_cents / 100} for s in services],
         "professionals": [{"id": p.id, "name": p.name, "specialty": p.specialty} for p in professionals]
     })
+
 
 @app.post("/api/professionals")
 @login_required
@@ -461,10 +527,161 @@ def api_create_professional():
     specialty = (data.get("specialty") or "").strip()
     if not name:
         return jsonify({"error": "Nome do profissional é obrigatório."}), 400
-    prof = Professional(company_id=user.company_id, unit_id=user.unit_id, name=name, specialty=specialty, active=True)
+    prof = Professional(
+        company_id=user.company_id,
+        unit_id=user.unit_id,
+        name=name,
+        specialty=specialty,
+        active=True
+    )
     db.session.add(prof)
     db.session.commit()
     return jsonify({"id": prof.id, "name": prof.name}), 201
+
+
+@app.get("/api/units")
+@login_required
+def api_get_units():
+    user = current_user()
+    units = scoped_query(Unit).filter_by(active=True).order_by(Unit.id.asc()).all()
+    return jsonify([{
+        "id": u.id,
+        "name": u.name,
+        "slug": u.slug,
+        "city": u.city,
+        "active": u.active,
+        "is_current": (user.unit_id == u.id),
+    } for u in units])
+
+
+@app.post("/api/units")
+@login_required
+def api_create_unit():
+    user = current_user()
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    city = (data.get("city") or "").strip()
+    raw_slug = (data.get("slug") or "").strip().lower()
+
+    if not name:
+        return jsonify({"error": "Nome da unidade é obrigatório."}), 400
+
+    base_slug = slugify(raw_slug or f"{user.company_id}-{name}")
+    slug = base_slug
+    counter = 1
+    while Unit.query.filter_by(slug=slug).first():
+        counter += 1
+        slug = f"{base_slug}-{counter}"
+
+    unit = Unit(company_id=user.company_id, name=name, slug=slug, city=city, active=True)
+    db.session.add(unit)
+    db.session.flush()
+
+    if not user.unit_id:
+        user.unit_id = unit.id
+
+    db.session.commit()
+    return jsonify({
+        "id": unit.id,
+        "name": unit.name,
+        "slug": unit.slug,
+        "city": unit.city,
+        "is_current": (user.unit_id == unit.id),
+    }), 201
+
+
+@app.patch("/api/units/<int:unit_id>/select")
+@login_required
+def api_select_unit(unit_id):
+    user = current_user()
+    unit = scoped_query(Unit).filter_by(id=unit_id, active=True).first()
+    if not unit:
+        return jsonify({"error": "Unidade não encontrada nesta empresa."}), 404
+    user.unit_id = unit.id
+    db.session.commit()
+    return jsonify({"id": unit.id, "name": unit.name, "unit": unit.name})
+
+
+@app.get("/api/settings")
+@login_required
+def api_get_settings():
+    user = current_user()
+    company = db.session.get(Company, user.company_id)
+    settings = get_or_create_settings(user.company_id)
+    total_units = scoped_query(Unit).filter_by(active=True).count()
+    return jsonify({
+        "company": {
+            "id": company.id,
+            "name": company.name,
+            "slug": company.slug,
+        },
+        "preferences": {
+            "business_phone": settings.business_phone,
+            "open_hour": settings.open_hour,
+            "close_hour": settings.close_hour,
+            "slot_minutes": settings.slot_minutes,
+            "share_catalog_across_units": settings.share_catalog_across_units,
+            "allow_overbooking": settings.allow_overbooking,
+        },
+        "subscription": {
+            "plan_name": settings.plan_name,
+            "included_units": settings.included_units,
+            "active_units": total_units,
+            "extra_units": max(0, total_units - settings.included_units),
+        },
+        "user": {
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+        }
+    })
+
+
+@app.patch("/api/settings")
+@login_required
+def api_update_settings():
+    user = current_user()
+    company = db.session.get(Company, user.company_id)
+    settings = get_or_create_settings(user.company_id)
+    data = request.get_json(silent=True) or {}
+
+    if "company_name" in data:
+        new_company_name = (data.get("company_name") or "").strip()
+        if not new_company_name:
+            return jsonify({"error": "O nome da empresa não pode ficar vazio."}), 400
+        company.name = new_company_name
+
+    if "business_phone" in data:
+        settings.business_phone = (data.get("business_phone") or "").strip()
+    if "open_hour" in data:
+        settings.open_hour = (data.get("open_hour") or "08:00").strip()
+    if "close_hour" in data:
+        settings.close_hour = (data.get("close_hour") or "20:00").strip()
+    if "slot_minutes" in data:
+        settings.slot_minutes = max(10, int(data.get("slot_minutes") or 30))
+    if "share_catalog_across_units" in data:
+        settings.share_catalog_across_units = bool(data.get("share_catalog_across_units"))
+    if "allow_overbooking" in data:
+        settings.allow_overbooking = bool(data.get("allow_overbooking"))
+
+    if "user_name" in data:
+        new_user_name = (data.get("user_name") or "").strip()
+        if new_user_name:
+            user.name = new_user_name
+
+    new_password = (data.get("new_password") or "").strip()
+    if new_password:
+        if len(new_password) < 6:
+            return jsonify({"error": "A nova senha deve ter pelo menos 6 caracteres."}), 400
+        user.password_hash = generate_password_hash(new_password)
+
+    db.session.commit()
+    return jsonify({
+        "ok": True,
+        "company_name": company.name,
+        "user_name": user.name,
+    })
+
 
 @app.get("/api/public/catalog")
 def api_public_catalog():
@@ -538,6 +755,7 @@ def seed_demo():
                  email="admin@salonflow.test",
                  password_hash=generate_password_hash("SalonFlow@2026"), role="manager")
     db.session.add(admin)
+    db.session.add(CompanySetting(company_id=company.id))
     pros = [
         Professional(company_id=company.id, unit_id=unit.id, name="Camila Rocha", specialty="Especialista em cor"),
         Professional(company_id=company.id, unit_id=unit.id, name="Pedro Alves", specialty="Barbeiro"),
@@ -585,7 +803,7 @@ def seed_demo():
 
 with app.app_context():
     db.create_all()
-    #seed_demo()
+    # seed_demo()
 
 
 if __name__ == "__main__":
