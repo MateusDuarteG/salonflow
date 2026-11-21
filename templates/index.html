@@ -201,15 +201,31 @@
           experiência.</p>
       </section>
 
-      <section class="page placeholder-page" id="agenda">
+      <section class="page" id="agenda">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">ORGANIZAÇÃO</p>
+            <p class="eyebrow">ORGANIZAÇÃO · JANELA DE 5 DIAS</p>
             <h1>Agenda</h1>
-            <p class="subheading">Visualização diária da disponibilidade da equipe.</p>
-          </div><button class="primary-button" id="agendaNew">＋ Novo agendamento</button>
+            <p class="subheading">Visualização consecutiva de 5 dias. Arraste um cartão para outro dia para remarcar.</p>
+          </div>
+          <button class="primary-button" id="agendaNew">＋ Novo agendamento</button>
+        </div>
+        <div class="toolbar">
+          <div class="date-control" id="agendaDateControl">
+            <button type="button" data-agenda-step="-5" title="Voltar 5 dias" style="background:none;border:none;cursor:pointer;padding:0 4px;font-size:inherit;color:inherit;">«</button>
+            <button type="button" data-agenda-step="-1" title="Dia anterior" style="background:none;border:none;cursor:pointer;padding:0 6px;font-size:inherit;color:inherit;">‹</button>
+            <b id="agendaRangeLabel">Carregando...</b>
+            <button type="button" data-agenda-step="1" title="Próximo dia" style="background:none;border:none;cursor:pointer;padding:0 6px;font-size:inherit;color:inherit;">›</button>
+            <button type="button" data-agenda-step="5" title="Avançar 5 dias" style="background:none;border:none;cursor:pointer;padding:0 4px;font-size:inherit;color:inherit;">»</button>
+          </div>
+          <button type="button" class="filter-button" id="agendaTodayBtn">Hoje</button>
+          <span class="board-total" id="agendaTotalLabel">0 agendamentos nos 5 dias</span>
+        </div>
+        <div class="kanban-board" id="agendaBoard">
+          <!-- Colunas dos 5 dias -->
         </div>
       </section>
+
       <section class="page placeholder-page" id="clientes">
         <div class="page-heading">
           <div>
@@ -223,6 +239,7 @@
           <div id="client-list-container">Carregando clientes...</div>
         </div>
       </section>
+
       <section class="page placeholder-page" id="equipe">
         <div class="page-heading">
           <div>
@@ -250,6 +267,7 @@
           <div id="service-list-container">Carregando serviços...</div>
         </div>
       </section>
+
       <section class="page placeholder-page" id="unidades">
         <div class="page-heading">
           <div>
@@ -258,16 +276,108 @@
             <p class="subheading">Acompanhe as unidades vinculadas à sua empresa.</p>
           </div><button class="primary-button" id="openUnitModal">＋ Nova unidade</button>
         </div>
+        <div class="panel" style="margin-top: 20px; padding: 20px;">
+          <div id="unit-list-container">Carregando unidades...</div>
+        </div>
       </section>
-      <section class="page placeholder-page" id="config">
+
+      <section class="page" id="config">
         <div class="page-heading">
           <div>
             <p class="eyebrow">PREFERÊNCIAS</p>
             <h1>Configurações</h1>
-            <p class="subheading">Personalize o ambiente da sua empresa.</p>
+            <p class="subheading">Personalize os dados da empresa, regras das unidades e sua conta.</p>
           </div>
+          <button class="primary-button" id="saveSettingsBtn">Salvar alterações</button>
         </div>
+
+        <div class="content-grid" style="margin-top: 20px;">
+          <article class="panel" style="padding: 20px;">
+            <div class="panel-heading">
+              <div>
+                <h2>Identidade da Empresa</h2>
+                <p>Informações principais do seu espaço de trabalho</p>
+              </div>
+            </div>
+            <form id="settingsCompanyForm" style="display:flex;flex-direction:column;gap:12px;">
+              <label>Nome da empresa
+                <input id="cfg-company-name" required placeholder="Ex: Studio Lumière" style="width:100%;padding:9px;margin-top:5px;border:1px solid #ddd;border-radius:8px;">
+              </label>
+              <label>Identificador (Slug)
+                <input id="cfg-company-slug" disabled style="width:100%;padding:9px;margin-top:5px;border:1px solid #eee;border-radius:8px;background:#f7f7f7;color:#666;">
+              </label>
+              <label>WhatsApp / Telefone comercial
+                <input id="cfg-business-phone" placeholder="Ex: (34) 99999-9999" style="width:100%;padding:9px;margin-top:5px;border:1px solid #ddd;border-radius:8px;">
+              </label>
+              <div class="form-two">
+                <label>Abertura padrão
+                  <input type="time" id="cfg-open-hour" value="08:00" style="width:100%;padding:9px;margin-top:5px;border:1px solid #ddd;border-radius:8px;">
+                </label>
+                <label>Fechamento padrão
+                  <input type="time" id="cfg-close-hour" value="20:00" style="width:100%;padding:9px;margin-top:5px;border:1px solid #ddd;border-radius:8px;">
+                </label>
+              </div>
+            </form>
+          </article>
+
+          <article class="panel" style="padding: 20px;">
+            <div class="panel-heading">
+              <div>
+                <h2>Regras Operacionais & Plano</h2>
+                <p>Comportamento entre unidades e assinatura</p>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:14px;">
+              <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+                <input type="checkbox" id="cfg-share-catalog" style="margin-top:4px;">
+                <span>
+                  <b>Compartilhar equipe e serviços entre unidades</b><br>
+                  <small style="color:#666;">Desmarcado: cada unidade tem seus próprios profissionais e serviços. Marcado: todas as unidades usam o mesmo catálogo.</small>
+                </span>
+              </label>
+
+              <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+                <input type="checkbox" id="cfg-allow-overbooking" style="margin-top:4px;">
+                <span>
+                  <b>Permitir encaixe no mesmo horário</b><br>
+                  <small style="color:#666;">Permite agendar dois clientes para o mesmo profissional no mesmo intervalo.</small>
+                </span>
+              </label>
+
+              <div style="background:#f8f8f8;border:1px solid #ececec;border-radius:10px;padding:14px;margin-top:4px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <b id="cfg-plan-name">Assinatura Base</b>
+                  <span class="tag" style="background:#e8f5e9;color:#1b5e20;padding:3px 8px;border-radius:4px;font-size:11px;">Ativo</span>
+                </div>
+                <p id="cfg-plan-summary" style="margin:6px 0 0;font-size:13px;color:#555;">Carregando resumo de unidades...</p>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <article class="panel" style="margin-top: 20px; padding: 20px;">
+          <div class="panel-heading">
+            <div>
+              <h2>Minha Conta</h2>
+              <p>Dados de acesso do administrador logado</p>
+            </div>
+          </div>
+          <div class="form-two">
+            <label>Seu nome
+              <input id="cfg-user-name" style="width:100%;padding:9px;margin-top:5px;border:1px solid #ddd;border-radius:8px;">
+            </label>
+            <label>E-mail de acesso
+              <input id="cfg-user-email" disabled style="width:100%;padding:9px;margin-top:5px;border:1px solid #eee;border-radius:8px;background:#f7f7f7;color:#666;">
+            </label>
+          </div>
+          <div style="margin-top: 12px; max-width: 360px;">
+            <label>Nova senha (deixe em branco para manter a atual)
+              <input type="password" id="cfg-new-password" placeholder="Mínimo 6 caracteres" style="width:100%;padding:9px;margin-top:5px;border:1px solid #ddd;border-radius:8px;">
+            </label>
+          </div>
+        </article>
       </section>
+
       <footer class="footer">SalonFlow <span>·</span> Protótipo de interface v0.1 <span>·</span> Dados ilustrativos
       </footer>
     </main>
@@ -283,9 +393,12 @@
         <label>Nome do cliente<input required id="modal-client-name" placeholder="Ex.: Camila Oliveira"></label>
         <div class="form-two">
           <label>Serviço<select id="modal-service-select" required></select></label>
-          <label>Horário<input type="time" id="modal-time-input" value="14:00" required></label>
+          <label>Data<input type="date" id="modal-date-input" required></label>
         </div>
-        <label>Profissional<select id="modal-professional-select" required></select></label>
+        <div class="form-two">
+          <label>Horário<input type="time" id="modal-time-input" value="14:00" required></label>
+          <label>Profissional<select id="modal-professional-select" required></select></label>
+        </div>
         <button class="primary-button modal-submit" type="submit">Salvar agendamento</button>
       </form>
       <p class="prototype-note">Demonstração visual — os dados não são salvos em banco de dados.</p>
